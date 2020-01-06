@@ -8,140 +8,45 @@
 #include "max6675.h"
 #include <EEPROM.h>
 
-/*
-#define ONE_WIRE_BUS 2
-OneWire oneWire(ONE_WIRE_BUS);
-*/
-
 OneWire oneWire(2); // Шина 1-Wire для датчиков температуры DS18B20 на пине 2.
 
 DallasTemperature sensors(&oneWire);
 
-/*
-#if defined(ARDUINO_ARCH_SAMD)
-#define Serial SerialUSB
-#endif
-#if defined(ARDUINO) && ARDUINO >= 100
-#define printByte(args)  write(args);
-#else
-#define printByte(args)  print(args,BYTE);
-#endif
-*/
 #define key_pressed_encoder 1
 #define key_pressed_rezhim 2
 #define key_holded_encoder 3
 #define key_holded_rezhim 4
 #define keys_not_pressed 0
 
-
 Servo zaslonka;// Servo
 RTC_DS3231 rtc; // Clok + EEPROM
 LiquidCrystal_I2C lcd(0x3F, 20, 4); // Устанавливаем дисплей 2004 Evro
 
-byte rus_D[8]  = // Д - матрица
-{
-  0b00110,
-  0b01010,
-  0b01010,
-  0b01010,
-  0b01010,
-  0b01010,
-  0b11111,
-  0b10001
-};
-
-byte rus_i[8] = // И - матрица
-{ B10001,
-  B10001,
-  B10011,
-  B10101,
-  B11001,
-  B10001,
-  B10001,
-  B00000,
-};
-
-byte rus_yy[8] = // Ы - матрица
-{ B10001,
-  B10001,
-  B10001,
-  B11101,
-  B10011,
-  B10011,
-  B11101,
-  B00000,
-};
-
-byte rus_p[8] = // П - матрица
-{ B11111,
-  B10001,
-  B10001,
-  B10001,
-  B10001,
-  B10001,
-  B10001,
-  B00000,
-};
-
-byte rus_ya[8] = // Я - матрица
-{ B01111,
-  B10001,
-  B10001,
-  B01111,
-  B00101,
-  B01001,
-  B10001,
-  B00000,
-};
-
-byte rus_g[8] = // Г - матрица
-{ B11111,
-  B10001,
-  B10000,
-  B10000,
-  B10000,
-  B10000,
-  B10000,
-  B00000,
-};
-
-byte rus_l[8] = // Л - матрица
-{ B00111,
-  B01001,
-  B01001,
-  B01001,
-  B01001,
-  B01001,
-  B10001,
-  B00000,
-};
-
-byte rus_zg[8] = // Ж - матрица
-{ B10101,
-  B10101,
-  B01110,
-  B00100,
-  B01110,
-  B10101,
-  B10101,
-  B00000,
-};
+byte rus_D[8]  = {6, 10, 10, 10, 10, 10, 31, 17}; // Д - матрица
+byte rus_i[8] = {17, 17, 19, 21, 25, 17, 17, 0}; // И - матрица
+byte rus_yy[8] = {17, 17, 17, 29, 19, 19, 29, 0}; // Ы - матрица
+byte rus_p[8] = {31, 17, 17, 17, 17, 17, 0}; // П - матрица
+byte rus_ya[8] = {15, 17, 17, 15, 5, 9, 17, 0}; // Я - матрица
+byte rus_g[8] = {31, 17, 16, 16, 16, 16, 16, 0}; // Г - матрица
+byte rus_l[8] = {7, 9, 9, 9, 9, 9, 17, 0}; // Л - матрица
+byte rus_zg[8] = {21, 21, 14, 4, 14, 21, 21, 0}; // Ж - матрица
 
 uint8_t key_data = 0; // переменная функции опроса кнопок
+uint8_t minimal_move = 10; // Минимально необходимое изменение значения угла поворота сервы, ниже которого серву не дёргаем
 boolean summer_mode = 0; // Летний режим
-double temp_gaz = 20.0; //Температура носителя на выходе газового котла
-double temp_carbon = 10.0; //Температура носителя на выходе твердотопливного котла
-double temp_obratka = 10.0; //Температура носителя In
-double temp_logging = 30.0;
-int16_t temp_max = 95; // Максимальная температура аварии
+float temp_gaz = 20.0; //Температура носителя на выходе газового котла
+float temp_carbon = 10.0; //Температура носителя на выходе твердотопливного котла
+float temp_obratka = 10.0; //Температура носителя In
+float temp_logging = 30.0;
+int16_t temp_max = 87; // Максимальная температура аварии
 int16_t temp_min = 35; // Минимальная температура (котел холодный) насос выключяется
-int16_t temp_val = 45; //Установленная температура
-int16_t temp_ttk_diff = 10; // полоса мастштабирования температуры в коэффициент открытия заслонки
+int16_t temp_carbon_setpoint = 45; //Установленная температура
+int16_t temp_ttk_diff = 3; // полоса мастштабирования температуры в коэффициент открытия заслонки
 int16_t tempthermocouple_value = 0; // Переменная температуры дымохода
-int16_t tempthermocouple_value_limit = 105; // Значение ограничения температуры дымохода
+int16_t tempthermocouple_value_limit = 115; // Значение ограничения температуры дымохода
 int16_t tempthermocouple_value_limit_low = 90; // Значение гистерезиса ограничения температуры дымохода
-double temp_old = 25; // Переменная предыдущей температуры подачи твердотопливного котла
-long temp_oldtime = 0; // Предыдущее время замера для определения остывания
+float temp_old = 25; // Переменная предыдущей температуры подачи твердотопливного котла
+uint32_t temp_oldtime = 0; // Предыдущее время замера для определения остывания
 uint32_t period_millis = 0; //переменная времени для периодического обновления данных
 uint32_t seconds_millis = 0; //переменная времени для периодического обновления данных
 uint32_t smoke_overtemp_millis = 0; // переменная для интервала проверки перегрева дымохода
@@ -188,60 +93,56 @@ DeviceAddress sensor3 = { 0x28, 0xFF, 0x01, 0x11, 0xA1, 0x15, 0x03, 0x9E  };
 
 void setup()
 {
-  sensors.begin(); // Запуск датчиков температуры
-  sensors.setResolution(sensor1, 11); // 11 bit (9, 10, 11 и 12)
-  sensors.setResolution(sensor2, 11); // 11 bit
-  sensors.setResolution(sensor3, 11); // 11 bit
-  Serial.begin(9600);
+	sensors.begin(); // Запуск датчиков температуры
+	sensors.setResolution(sensor1, 11); // 11 bit (9, 10, 11 и 12)
+	sensors.setResolution(sensor2, 11); // 11 bit
+	sensors.setResolution(sensor3, 11); // 11 bit
+	Serial.begin(9600);
 
-  if (! rtc.begin()) {
-    Serial.println("Couldn't find RTC");
-    while (1){	
-      tone(BEEPER, 900, 10);
-      }; // stop! No time!
-}
-  if (rtc.lostPower()) {
-    Serial.println("RTC lost power, lets set the time!");
-    // following line sets the RTC to the date & time this sketch was compiled
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    // This line sets the RTC with an explicit date & time, for example to set
-    // January 21, 2014 at 3am you would call:
-    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
-  }  
+	if (! rtc.begin()) // stop! No time!
+		{
+			Serial.println("Couldn't find RTC");
+			while (1)	
+				{
+					tone(BEEPER, 900, 10);
+				}
+		}
+	if (rtc.lostPower()) 
+		{
+			Serial.println("RTC lost power, lets set the time!");
+			// following line sets the RTC to the date & time this sketch was compiled
+			rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+			// This line sets the RTC with an explicit date & time, for example to set
+			// January 21, 2014 at 3am you would call:
+			// rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+		}  
   
   
-  lcd.init();
-  lcd.backlight();
-  lcd.createChar(0, rus_D); // - прописываем символы
-  lcd.createChar(1, rus_i);
-  lcd.createChar(2, rus_yy);
-  lcd.createChar(3, rus_ya);
-  lcd.createChar(4, rus_p);
-  lcd.createChar(5, rus_g);
-  lcd.createChar(6, rus_l);
-  lcd.createChar(6, rus_zg); 
+	lcd.init();
+	lcd.backlight();
+	lcd.createChar(0, rus_D); // - прописываем символы
+	lcd.createChar(1, rus_i);
+	lcd.createChar(2, rus_yy);
+	lcd.createChar(3, rus_ya);
+	lcd.createChar(4, rus_p);
+	lcd.createChar(5, rus_g);
+	lcd.createChar(6, rus_l);
+	lcd.createChar(6, rus_zg); 
 
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("3A\x0DP\xBF""3KA...");
+	lcd.clear();
+	lcd.setCursor(0, 0);
+	lcd.print("3A\x0DP\xBF""3KA...");
+	lcd.clear();	
 
-/*
-  zaslonka.attach(SERVO); // Иницилизация серво
-  zaslonka.write(zaslonka_max); // Установка заслонки в открыто
-  delay(1000);
-  zaslonka.detach();
-*/  
-  pinMode(knopka_rezhim, INPUT);  // кнопка режима
-  pinMode(knopka, INPUT);
-//  digitalWrite(knopka, HIGH);
-  pinMode(POMPA, OUTPUT);
-  pinMode(13, OUTPUT);  
-  digitalWrite(POMPA, HIGH);
+	pinMode(knopka_rezhim, INPUT);  // кнопка режима
+	pinMode(knopka, INPUT);
+//	digitalWrite(knopka, HIGH);
+	pinMode(POMPA, OUTPUT);
+	pinMode(13, OUTPUT);  
+	digitalWrite(POMPA, HIGH);
 
-  lcd.clear();
-
-  EEPROM.get(0, temp_min);  //Чтение из ЕЕПРОМ 
-  EEPROM.get(2, temp_val); //Чтение из ЕЕПРОМ 
+	EEPROM.get(0, temp_min);  //Чтение из ЕЕПРОМ 
+	EEPROM.get(2, temp_carbon_setpoint); //Чтение из ЕЕПРОМ 
 
     zaslonka.attach(SERVO); // Иницилизация серво
     zaslonka.write(zaslonka_min);  // Перемещение заслонки
@@ -253,69 +154,79 @@ void setup()
 
 void loop()
 {
-  encoder.tick();	// считывание состояния энкодера
-  key_data = get_key();  // вызываем функцию определения нажатия кнопок, присваивая возвращаемое ней значение переменной, которую далее будем использовать в коде
+	encoder.tick();	// считывание состояния энкодера
+	key_data = get_key();  // вызываем функцию определения нажатия кнопок, присваивая возвращаемое ней значение переменной, которую далее будем использовать в коде
 
-  if ((millis()-period_millis)>period) // Считываем показания температуры с датчиков с интервалом "period"
-      {
-    sensors.requestTemperatures(); // запрос температуры
-    temp_gaz = sensors.getTempCByIndex(0); // Температура выхода теплоносителя газового котла
-    temp_carbon = sensors.getTempCByIndex(2); // Температура выхода теплоносителя твердотопливного котла
-    temp_obratka = sensors.getTempCByIndex(1); // Температура обратки
-    // Serial.println (temp_carbon);
-    tempthermocouple_value = thermocouple.readCelsius(); // Температура дымохода
-    period_millis = millis();
-      }
+	if ((millis()-period_millis)>period) // Считываем показания температуры с датчиков с интервалом "period"
+		{
+			sensors.requestTemperatures(); // запрос температуры
+			temp_gaz = sensors.getTempCByIndex(0); // Температура выхода теплоносителя газового котла
+			temp_carbon = sensors.getTempCByIndex(2); // Температура выхода теплоносителя твердотопливного котла
+			temp_obratka = sensors.getTempCByIndex(1); // Температура обратки
+			// Serial.println (temp_carbon);
+			tempthermocouple_value = thermocouple.readCelsius(); // Температура дымохода
+			period_millis = millis();
+		}
 
 //___________________________________________________________________________________
 // детектирование погасания твердотопливного котла
 	if (millis() - seconds_millis > 1000) // секундный софт-таймер
 	{
 			if ((temp_carbon - temp_obratka)<1)
-			{
-			cooling_counter++; // Инкрементируем переменную погасания.
-			}
-		else 
-			{
-			cooling_counter = 0; // Если температура в норме или выше уставки - сбрасываем отсчёт погасания.
-			}
+				{
+				cooling_counter++; // Инкрементируем переменную погасания.
+				}
+			else 
+				{
+				cooling_counter = 0; // Если температура в норме или выше уставки - сбрасываем отсчёт погасания.
+				}
     seconds_millis = millis();     
 	}
 //___________________________________________________________________________________
 
-  if ((temp_carbon > temp_min) || (temp_gaz > temp_min)) {
-    digitalWrite(POMPA, LOW); //Включение помпы отопления
-//    digitalWrite(13, HIGH);
-  }
-  else if ((temp_carbon < (temp_min-2)) && (temp_gaz < (temp_min-2))) {
-    digitalWrite(POMPA, HIGH); //Выключение помпы отопления
- //   digitalWrite(13, LOW);    
-  }
+	if ((temp_carbon > temp_min) || (temp_gaz > temp_min)) 
+		{
+			digitalWrite(POMPA, LOW); //Включение помпы отопления
+		}
+	else if ((temp_carbon < (temp_min-2)) && (temp_gaz < (temp_min-2))) 
+		{
+			digitalWrite(POMPA, HIGH); //Выключение помпы отопления
+		}
   
-    if (millis() - lcdUpdate >= 500) // обновление дисплея
-  {
-    blink_display = !blink_display;
-    dislay();
-    lcdUpdate = millis(); // Обновляем время для дисплея
-  }
+	if (millis() - lcdUpdate >= 500) // обновление дисплея
+		{
+			blink_display = !blink_display;
+			dislay();
+			lcdUpdate = millis(); // Обновляем время для дисплея
+		}
   
-  if (max_alarm) { // Eсли взведён флаг аварии перегрева
-	return; // Блокируем дальнейшую работу котла
-  }    
+	if (max_alarm)  // Eсли взведён флаг аварии перегрева
+		{
+			return; // Блокируем дальнейшую работу котла
+		}    
   
-  if (temp_carbon > temp_max) { // Eсли температура выше max то взводим флаг аварии перегрева и закрываем поддувало
-	max_alarm = 1;
-    tone(BEEPER, 500, 20);
-	zaslonka.attach(SERVO); // Иницилизация серво	
-	zaslonka.write(zaslonka_min); // Установка заслонки в закрыто
-	delay(1000); // Ждём установки сервы
-	zaslonka.detach(); // Отключаем серву
-  }
-  
-  if (cooling_alarm)  // Eсли взведён флаг аварии погасания
+	if (temp_carbon > temp_max)  // Eсли температура выше max то взводим флаг аварии перегрева и закрываем поддувало
 	{
-		return; // Блокируем дальнейшую работу котла
-	}  
+		max_alarm = 1;
+		tone(BEEPER, 500, 20);
+		zaslonka.attach(SERVO); // Иницилизация серво	
+		zaslonka.write(zaslonka_min); // Установка заслонки в закрыто
+		delay(1000); // Ждём установки сервы
+		zaslonka.detach(); // Отключаем серву
+	}
+  
+	if (cooling_alarm)  // Eсли взведён флаг аварии погасания
+		{
+			if (key_data == key_pressed_rezhim) // если нажата кнопка "режим"
+			{
+				cooling_alarm = 0; // сбрасываем аварию остывания
+				cooling_counter = 0; // сбрасываем значение таймера остывания
+			}
+			else 
+			{
+				return; // Блокируем дальнейшую работу котла
+			}
+		}  
   
    	if (tempthermocouple_value >= tempthermocouple_value_limit) // если температура дымохода выше верхнего установленного порога
 		{
@@ -326,71 +237,87 @@ void loop()
 			smoke_temp_max_state = 0; // выключаем режим ограничения температуры дымохода
 		}
 
-  if (cooling_counter > cooling_limit_1)  // Eсли температура ниже уставки на значение остывания и таймер остывания заполнен  
-	{
-		cooling_alarm = 1; // Взводим флаг аварии погасания 
-		tone(BEEPER, 500, 20);
-//		zaslonka.attach(SERVO,2300,800); // Иницилизация серво
-		zaslonka.attach(SERVO); // Иницилизация серво	
-		zaslonka.write(zaslonka_min); // Установка заслонки в закрыто
-		delay(1000); // Ждём установки сервы
-		zaslonka.detach(); // Отключаем серву
-		if (cooling_counter > cooling_limit_2) {cooling_counter = cooling_limit_2;} // не выходим за пределы второго лимита счётчика остывания
-	}
-  if ((millis()-zaslonka_millis_old) > zaslonka_interval)
-	{
-		zaslonka_millis_old = millis();
-		zaslonka_move(); // перемещение заслонки от температуры	  
-	}
+	if (cooling_counter > cooling_limit_1)  // Eсли температура ниже уставки на значение остывания и таймер остывания заполнен  
+		{
+			cooling_alarm = 1; // Взводим флаг аварии погасания 
+			tone(BEEPER, 500, 20);
+	//		zaslonka.attach(SERVO,2300,800); // Иницилизация серво
+			zaslonka.attach(SERVO); // Иницилизация серво	
+			zaslonka.write(zaslonka_min); // Установка заслонки в закрыто
+			delay(1000); // Ждём установки сервы
+			zaslonka.detach(); // Отключаем серву
+			if (cooling_counter > cooling_limit_2) {cooling_counter = cooling_limit_2;} // не выходим за пределы второго лимита счётчика остывания
+		}
+	if ((millis()-zaslonka_millis_old) > zaslonka_interval)
+		{
+			zaslonka_millis_old = millis();
+			zaslonka_move(); // перемещение заслонки от температуры	  
+		}
 	if (key_data == key_pressed_encoder) // Если нажата кнопка энкодера
-	{
-		key_data = 0;  // обнуляем переменную функции кнопок для предотвращения ложных срабатываний далее по коду
-		set_temp();
-	}
+		{
+			key_data = 0;  // обнуляем переменную функции кнопок для предотвращения ложных срабатываний далее по коду
+			set_temp();
+		}
 	
 	if (mode_set_temp) // Если поднят флаг установки температуры
-	{
-		set_temp();
-	}	
+		{
+			set_temp();
+		}	
 	
 	if (key_data == key_holded_encoder)
-	{
-		
-	}	
+		{
+			
+		}	
 }
 
 void zaslonka_move() 
 {
-zaslonka.attach(SERVO); // Иницилизация серво
-zaslonka_temp = zaslonka.read(); // Считываем с сервы последнее записаное значение
+	zaslonka.attach(SERVO); // Иницилизация серво
+	zaslonka_temp = zaslonka.read(); // Считываем с сервы последнее записаное значение
 	if (smoke_temp_max_state)
-	{
-		uint8_t temp_temp = 0;
-		if (tempthermocouple_value_limit > tempthermocouple_value)
-			{
-				temp_temp = tempthermocouple_value_limit - tempthermocouple_value;
-				zaslonka_val=map(temp_temp, tempthermocouple_value_limit_low, tempthermocouple_value_limit, zaslonka_min, zaslonka_max);	// Переносим значение температуры разбаланса в диапазон движения сервы
-			}
-		else
-			{
-				zaslonka_val=0;	
-			}
-
-	}
+		{
+			if (tempthermocouple_value_limit > tempthermocouple_value)
+				{
+					int16_t temporaty_zaslonka_val = zaslonka_min;
+					temporaty_zaslonka_val = map(tempthermocouple_value, tempthermocouple_value_limit_low, tempthermocouple_value_limit, zaslonka_max, zaslonka_min);	// Переносим значение температуры разбаланса в диапазон движения сервы				
+					if ((temp_carbon < temp_carbon_setpoint) && (temp_carbon >= (temp_carbon_setpoint - temp_ttk_diff)))
+						{
+							zaslonka_val=map((temp_carbon*10), ((temp_carbon_setpoint - temp_ttk_diff)*10), (temp_carbon_setpoint*10), zaslonka_max, zaslonka_min);	// Переносим значение температуры разбаланса в диапазон движения сервы
+						}
+					else if (temp_carbon < (temp_carbon_setpoint - temp_ttk_diff))
+						{
+							zaslonka_val = zaslonka_max;
+						}
+					else
+						{
+							zaslonka_val = zaslonka_min;
+						}
+					if (temporaty_zaslonka_val < zaslonka_val)
+						{
+							zaslonka_val = temporaty_zaslonka_val;
+						}
+				}
+			else
+				{
+					zaslonka_val=zaslonka_min;	
+				}
+		}
 	 else
-	{
-		uint8_t temp_temp = 0;
-		if (temp_val > temp_carbon)
-			{
-				temp_temp = temp_val - temp_carbon;
-				zaslonka_val=map(temp_temp, (temp_val - temp_ttk_diff), temp_val, zaslonka_min, zaslonka_max);	// Переносим значение температуры разбаланса в диапазон движения сервы
-			}
-		else
-			{
-				zaslonka_val = 0;
-			}
-	}
-		if (abs(zaslonka_val-zaslonka_val_old)>3) // если разница между старым и новым значением меньше 3, серву зря не дёргаем
+		{
+			if ((temp_carbon < temp_carbon_setpoint) && (temp_carbon >= (temp_carbon_setpoint - temp_ttk_diff)))
+				{
+					zaslonka_val=map((temp_carbon*10), ((temp_carbon_setpoint - temp_ttk_diff)*10), (temp_carbon_setpoint*10), zaslonka_max, zaslonka_min);	// Переносим значение температуры разбаланса в диапазон движения сервы
+				}
+			else if (temp_carbon < (temp_carbon_setpoint - temp_ttk_diff))
+				{
+					zaslonka_val = zaslonka_max;
+				}
+			else
+				{
+					zaslonka_val = zaslonka_min;
+				}
+		}
+		if (abs(zaslonka_val-zaslonka_val_old)>minimal_move) // если разница между старым и новым значением меньше minimal_move, серву зря не дёргаем
 		// для уменьшения рывков перемещаем серву плавно, с задержками
 			{
 				if (zaslonka_val>zaslonka_temp) // если требуемое значение больше предыдущего
@@ -422,52 +349,51 @@ zaslonka_temp = zaslonka.read(); // Считываем с сервы после�
 
 void time_out()  // Вывод Времени
 {
-  lcd.setCursor(15, 0);
-  DateTime now = rtc.now();
-
-  if (now.hour() < 10 ) {
-    lcd.print('0');
-  }
-  lcd.print(now.hour(), DEC);
-
-  lcd.print(':');
-
-  if (now.minute() < 10 ) {
-    lcd.print('0');
-  }
-  lcd.print(now.minute(), DEC);
+	lcd.setCursor(15, 0);
+	DateTime now = rtc.now();
+	if (now.hour() < 10 ) 
+		{
+			lcd.print('0');
+	}
+	lcd.print(now.hour(), DEC);
+	lcd.print(':');
+	if (now.minute() < 10 ) 
+		{
+			lcd.print('0');
+		}
+	lcd.print(now.minute(), DEC);
 }
 
 void set_temp()
 {
-static uint32_t timeout_mode_set_temp = 0;
-int newPos = encoder.getPosition();
-if (!mode_set_temp)  // Если зашли в функцию первый раз - включаем повторные вызовы и запоминаем время входа
- {
-	mode_set_temp = 1; 
-	timeout_mode_set_temp = millis();
- }
-    if (((pos - 2) >= newPos) || ((pos + 2) <= newPos))
-  {
-  timeout_mode_set_temp = millis();
-    if (newPos > pos)
-    {
-		temp_val = temp_val + 1;
-    dislay();
-    lcdUpdate = millis(); // Обновляем время для дисплея
-    }
-    if (newPos < pos)
-    {
-		temp_val = temp_val - 1;	
-    dislay();
-    lcdUpdate = millis(); // Обновляем время для дисплея	
-    }    
-    pos = newPos;
-  }
-  if (((millis() - timeout_mode_set_temp) > 7000) || (key_data == key_pressed_encoder))
+	static uint32_t timeout_mode_set_temp = 0;
+	int newPos = encoder.getPosition();
+	if (!mode_set_temp)  // Если зашли в функцию первый раз - включаем повторные вызовы и запоминаем время входа
+	{
+		mode_set_temp = 1; 
+		timeout_mode_set_temp = millis();
+	}
+	if (((pos - 2) >= newPos) || ((pos + 2) <= newPos))
+		{
+			timeout_mode_set_temp = millis();
+			if (newPos > pos)
+				{
+					temp_carbon_setpoint = temp_carbon_setpoint + 1;
+					dislay();
+					lcdUpdate = millis(); // Обновляем время для дисплея
+				}
+			if (newPos < pos)
+				{
+					temp_carbon_setpoint = temp_carbon_setpoint - 1;	
+					dislay();
+					lcdUpdate = millis(); // Обновляем время для дисплея	
+				}    
+			pos = newPos;
+		}
+	if (((millis() - timeout_mode_set_temp) > 7000) || (key_data == key_pressed_encoder))
   {
   	mode_set_temp = 0; 
-  	EEPROM.put(2, temp_val); //Запись в ЕЕПРОМ 
+  	EEPROM.put(2, temp_carbon_setpoint); //Запись в ЕЕПРОМ 
 	delay (30);	
   	lcd.clear();
     lcd.setCursor(5, 1);
@@ -486,11 +412,11 @@ int newPos = encoder.getPosition();
   {
     if (newPos > pos)
     {
-		temp_val = temp_val + 1;
+		temp_carbon_setpoint = temp_carbon_setpoint + 1;
     }
     if (newPos < pos)
     {
-		temp_val = temp_val - 1;		
+		temp_carbon_setpoint = temp_carbon_setpoint - 1;		
     }    
     pos = newPos;
   }
@@ -513,7 +439,7 @@ void dislay() //Обновление основного дисплэя
   lcd.setCursor(11, 1);
   lcd.print ("\xBF""CT: ");
   
-  lcd.print(temp_val, 1); // Выводм тепературу xx.x Установленная рабочяя
+  lcd.print(temp_carbon_setpoint, 1); // Выводм тепературу xx.x Установленная рабочяя
   if (!mode_set_temp || blink_display)
   {
   lcd.print ("\xDF");  
@@ -630,8 +556,11 @@ return 0; // если ни одна из кнопок не была нажата
 }
 
 /*
+05.01.2020
+- фикс предыдущих изменений, добавление сброса аварии остывания коротким нажатием кнопки "режим"
+
 06.12.2019
-Выброшен PID алгоритм, заменён на пропорциональное регулирование с задаваемой полосой. Авария перегрева дымохода вместо триггерной сделана также с полосой регулирования, с приоритетом выше основного регулирования по температуре теплоносителя.
+- выброшен PID алгоритм, заменён на пропорциональное регулирование с задаваемой полосой. Авария перегрева дымохода вместо триггерной сделана также с полосой регулирования, с приоритетом выше основного регулирования по температуре теплоносителя.
 
 13.11.2018
 -добавил затирание нижней строки, т.к. оставались надписи ДЫМОХОД и ОСТАНОВКА даже после снятия режимов
@@ -644,12 +573,11 @@ return 0; // если ни одна из кнопок не была нажата
 
 
 TODO:
+-перевести все данные на целочисленные, с умножением полученных с датчиков десятичных на 10
 
 -корректировка ручного изменения положения сервы с заданным интервалом
 
 -запись лога с привязкой ко времени на флеш-память RTC и вывод его в сериал, с возможностью включения/отключения
-
--сброс аварий остывания и перегрева кнопкой "РЕЖИМ"
 
 -переписать полностью меню
 
